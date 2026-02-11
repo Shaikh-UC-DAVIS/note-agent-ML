@@ -1,0 +1,10 @@
+langchain
+openai
+pydantic
+sentence-transformers
+networkx
+python-dotenv
+tiktoken
+numpy
+pandas
+pytest
