@@ -106,3 +106,29 @@ class EmbeddingGenerator:
         texts = [chunk.text for chunk in chunks]
         embeddings = self.model.encode(texts)
         return embeddings.tolist()
+
+
+## Changes Made:
+'''
+
+1) Chunk.metadata now typed and default-safe
+
+You can reliably store:
+
+note_id
+
+user_id
+
+workspace_id
+
+chunk_index, token offsets
+
+2) process_note_text(...) added
+
+This is your clean entrypoint when a user saves/updates a note in app UI.
+
+3) extract_from_note_chunks(...) added
+
+This wires ingestion → extraction so each extracted task gets person/workspace correlation.
+
+'''
