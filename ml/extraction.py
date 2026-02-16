@@ -1,8 +1,15 @@
+import os
+import json
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
-import json
+from openai import OpenAI
+from dotenv import load_dotenv
 
-# Define the structured output models
+# Load environment variables from .env file
+load_dotenv()
+
+# ── Structured output models (unchanged) ──────────────────────────────────────
+
 class ExtractedObject(BaseModel):
     id: str = Field(description="Unique identifier for the object")
     type: Literal['Idea', 'Claim', 'Assumption', 'Question', 'Task', 'Evidence', 'Definition']
@@ -19,87 +26,113 @@ class ExtractionResult(BaseModel):
     objects: List[ExtractedObject]
     links: List[Link]
 
+# ── LLM Extractor ─────────────────────────────────────────────────────────────
+
+# Using Zero-Shot Extraction to reply on model's high-level reasoning
+SYSTEM_PROMPT = """You are a knowledge-extraction engine. Given a passage of text, you must identify every discrete knowledge object and every relationship between them.
+
+### Object types
+- **Idea**: A concept, hypothesis, or creative thought.
+- **Claim**: A factual assertion that can be true or false.
+- **Assumption**: An unstated premise taken for granted.
+- **Question**: An open question or inquiry.
+- **Task**: An action item or to-do.
+- **Evidence**: Data, observations, or citations supporting a claim.
+- **Definition**: A formal definition of a term or concept.
+
+### Link types
+- **Supports**: Source provides evidence or reasoning for target.
+- **Contradicts**: Source conflicts with or opposes target.
+- **Refines**: Source is a more specific version of target.
+- **DependsOn**: Source requires target to hold true.
+- **SameAs**: Source and target express the same idea.
+- **Causes**: Source causally leads to target.
+
+### Rules
+1. Every object needs a unique, short, kebab-case `id` (e.g. `claim-earth-round`).
+2. `confidence` is your estimate (0.0-1.0) of how clearly the text states this object or link.
+3. Extract ALL objects you can find; do not omit minor ones.
+4. Create links wherever a relationship exists between two extracted objects.
+
+### Output format
+Return **only** valid JSON matching this schema (no markdown, no commentary):
+{
+  "objects": [
+    {"id": "...", "type": "...", "canonical_text": "...", "confidence": 0.0}
+  ],
+  "links": [
+    {"source_id": "...", "target_id": "...", "type": "...", "confidence": 0.0}
+  ]
+}"""
+
+
 class LLMExtractor:
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4-turbo"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.3-70b-versatile"):
         """
         Initialize the LLMExtractor.
-        
+
         Args:
-            api_key: OpenAI API key. If None, expects OPENAI_API_KEY env var.
-            model: The LLM model to use.
+            api_key: Groq API key. If None, reads from GROQ_API_KEY env var.
+            model: The model to use (default: llama-3.3-70b-versatile).
         """
-        self.model = model
-        # In a real implementation, we would initialize the OpenAI client here.
-        # self.client = OpenAI(api_key=api_key)
-        pass
+        self.model = model # Specify the model
+        resolved_key = api_key or os.getenv("GROQ_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "No API key provided. Pass api_key= or set the GROQ_API_KEY env var."
+            )
+        self.client = OpenAI(
+            api_key=resolved_key,
+            base_url="https://api.groq.com/openai/v1",
+        )
 
     def extract(self, text: str) -> ExtractionResult:
         """
-        Extracts structured objects and links from the given text.
-        
+        Extracts structured objects and links from the given text using an LLM.
+
         Args:
             text: The unstructured text to process.
-            
+
         Returns:
             An ExtractionResult containing the extracted objects and links.
         """
-        # Mock implementation for now to allow progress without live API keys
-        # This simulates what the LLM would return
-        
-        print(f"DEBUG: Mock extracting from text: {text[:50]}...")
-        
-        # Simple heuristic mock: if text contains "earth", create relevant objects
-        mock_objects = []
-        mock_links = []
-        
-        lower_text = text.lower()
-        
-        if "earth" in lower_text:
-            mock_objects.append(ExtractedObject(
-                id="claim-earth-round",
-                type="Claim",
-                canonical_text="The earth is round",
-                confidence=0.95
-            ))
-            mock_objects.append(ExtractedObject(
-                id="claim-earth-flat",
-                type="Claim",
-                canonical_text="The earth is flat",
-                confidence=0.4
-            ))
-            # Link them as contradictory
-            mock_links.append(Link(
-                source_id="claim-earth-round",
-                target_id="claim-earth-flat",
-                type="Contradicts",
-                confidence=0.9
-            ))
+        user_prompt = self._construct_prompt(text)
 
-        if "gravity" in lower_text:
-            mock_objects.append(ExtractedObject(
-                id="idea-gravity",
-                type="Idea",
-                canonical_text="Gravity pulls everything towards the center of mass",
-                confidence=0.9
-            ))
-            # Link gravity to earth round
-            if "earth" in lower_text:
-                 mock_links.append(Link(
-                    source_id="idea-gravity",
-                    target_id="claim-earth-round",
-                    type="Supports",
-                    confidence=0.85
-                ))
-            
-        return ExtractionResult(objects=mock_objects, links=mock_links)
+        try:
+            # Here is where we send a request to Groq servers
+            response = self.client.chat.completions.create(
+                model=self.model, # Specify the model
+                response_format={"type": "json_object"}, # Request json object
+                # Here use ChatML format to ensure security and avoid prompt injection
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2, # Set low temperature to ensure precision over creativity
+                max_tokens=2048,
+            )
+
+            raw_json = response.choices[0].message.content # Return object with the metadata
+            parsed = json.loads(raw_json)
+            result = ExtractionResult(**parsed) # Pour dictionary into model and get extraction
+
+            print(f"[Extraction] ✓ Extracted {len(result.objects)} objects, {len(result.links)} links  (model={self.model})")
+            return result
+
+        except json.JSONDecodeError as e:
+            print(f"[Extraction] ✗ Failed to parse LLM JSON response: {e}")
+            return ExtractionResult(objects=[], links=[])
+        except Exception as e:
+            print(f"[Extraction] ✗ LLM call failed: {e}")
+            return ExtractionResult(objects=[], links=[])
 
     def _construct_prompt(self, text: str) -> str:
-        """Constructs the prompt for the LLM."""
-        return f"""
-        Analyze the following text and extract structured knowledge objects.
-        
-        Text:
-        {text}
-        
-        Output JSON matching the ExtractionResult schema.
-        """
+        """Constructs the user prompt for the LLM."""
+        return f"""Analyze the following text and extract all knowledge objects and their relationships.
+
+Text:
+\"\"\"
+{text}
+\"\"\"
+
+Return the JSON now."""
