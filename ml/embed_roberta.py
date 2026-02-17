@@ -4,6 +4,8 @@ embed_roberta.py
 
 Generates embeddings for chunks using RoBERTa.
 Uses mean pooling over last_hidden_state.
+
+Input: JSONL file with one chunk per line gained from chunk_test.py
 """
 
 import argparse

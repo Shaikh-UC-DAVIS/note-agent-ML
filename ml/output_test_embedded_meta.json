@@ -1,6 +1,0 @@
-{
-  "model_name": "roberta-base",
-  "num_chunks": 3,
-  "hidden_dim": 768,
-  "pooling": "mean_pool"
-}
