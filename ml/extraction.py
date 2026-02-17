@@ -1,12 +1,8 @@
-import os
 import json
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 from openai import OpenAI
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
+from ml.config import config
 
 # ── Structured output models (unchanged) ──────────────────────────────────────
 
@@ -67,16 +63,16 @@ Return **only** valid JSON matching this schema (no markdown, no commentary):
 
 
 class LLMExtractor:
-    def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.3-70b-versatile"):
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         """
         Initialize the LLMExtractor.
 
         Args:
-            api_key: Groq API key. If None, reads from GROQ_API_KEY env var.
-            model: The model to use (default: llama-3.3-70b-versatile).
+            api_key: Optional Groq API key override. Defaults to config['groq_api_key'].
+            model: Optional model override. Defaults to config['model'].
         """
-        self.model = model # Specify the model
-        resolved_key = api_key or os.getenv("GROQ_API_KEY")
+        self.model = model or config['model']
+        resolved_key = api_key or config['groq_api_key']
         if not resolved_key:
             raise ValueError(
                 "No API key provided. Pass api_key= or set the GROQ_API_KEY env var."
@@ -101,15 +97,16 @@ class LLMExtractor:
         try:
             # Here is where we send a request to Groq servers
             response = self.client.chat.completions.create(
-                model=self.model, # Specify the model
-                response_format={"type": "json_object"}, # Request json object
-                # Here use ChatML format to ensure security and avoid prompt injection
+                model=self.model,
+                response_format={"type": "json_object"},
+                # Use ChatML format for security
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.2, # Set low temperature to ensure precision over creativity
-                max_tokens=2048,
+                temperature=config['temperature'],
+                max_tokens=config['max_tokens'],
+                timeout=config['timeout'],
             )
 
             raw_json = response.choices[0].message.content # Return object with the metadata
