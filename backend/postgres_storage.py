@@ -1,5 +1,6 @@
 import psycopg2
 from pgvector.psycopg2 import register_vector
+import numpy as np
 
 class PostgresMetadataStorage:
     def __init__(self, conn_string):
@@ -33,13 +34,19 @@ class PostgresMetadataStorage:
             self.conn.rollback()
             raise RuntimeError(f"Failed to insert chunk {chunk_id}: {e}")
 
+
     def search_vector(self, query_vec, limit=5):
-        if not query_vec or len(query_vec) != 384:
+        # Convert numpy array to list
+        if isinstance(query_vec, np.ndarray):
+            query_vec = query_vec.tolist()
+
+        if not query_vec:
+            raise ValueError("Query vector cannot be empty")
+        if len(query_vec) != 384:
             raise ValueError("Query vector must be 384-dim list")
-        
-        # Convert list to string for the query
+
         vec_string = "[" + ",".join(map(str, query_vec)) + "]"
-        
+
         try:
             with self.conn.cursor() as cur:
                 cur.execute(
