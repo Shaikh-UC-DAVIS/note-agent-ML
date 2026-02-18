@@ -1,6 +1,9 @@
 import os
 import sys
 import json
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Ensure we can import from the current directory
 sys.path.append(os.getcwd())
@@ -74,7 +77,7 @@ Key Idea: Gravity pulls everything towards the center of mass."""
 
     # 5. Structured Extraction
     print(f"\n[STEP 4] STRUCTURED EXTRACTION (Text -> Objects)")
-    print(f"   -> Model: LLM (Mocked)")
+    print(f"   -> Model: LLM (OpenAI)")
     extraction_result = extractor.extract(raw_text)
     
     print(f"   -> Extracted Objects:")
