@@ -14,6 +14,9 @@ from ml.graph import KnowledgeGraph
 from ml.search import HybridSearchEngine
 from ml.intelligence import IntelligenceLayer
 
+# Import the Postgres storage layer
+from backend.postgres_storage import PostgresMetadataStorage
+
 def main():
     print("\n" + "="*60)
     print(" NOTE AGENT: DATA TRANSFORMATION PIPELINE VISUALIZATION")
@@ -43,7 +46,13 @@ def main():
         
     extractor = LLMExtractor()
     graph = KnowledgeGraph()
-    search_engine = HybridSearchEngine(embedding_generator=embedder, graph=graph)
+
+    # Initialize PostgresMetadataStorage
+    conn_string = "dbname=note_agent user=postgres password=postgres host=localhost"
+    storage = PostgresMetadataStorage(conn_string)
+
+    # Pass storage to HybridSearchEngine
+    search_engine = HybridSearchEngine(embedding_generator=embedder, graph=graph, storage=storage)
     intelligence = IntelligenceLayer(graph)
 
     # 2. Raw Input
@@ -68,9 +77,16 @@ Key Idea: Gravity pulls everything towards the center of mass."""
     print(f"\n[STEP 3] EMBEDDING (Chunks -> Vectors)")
     embeddings = embedder.generate_embeddings(chunks)
     print(f"   -> Result: {len(embeddings)} Vectors Generated")
+
+    # Save chunks + embeddings to Postgres
     for i, vec in enumerate(embeddings):
-        # Index for search engine while we are at it
-        search_engine.index_chunk(f"chunk-{i}", chunks[i].text, vec)
+        chunk = chunks[i]
+        search_engine.index_chunk(
+            f"chunk-{i}",
+            chunks[i].text,
+            vec,
+            chunks[i].token_count
+        )
         # Show snippet
         vec_preview = ", ".join([f"{x:.4f}" for x in vec[:3]])
         print(f"      [Vector {i}] [{vec_preview}, ...]")
@@ -101,7 +117,7 @@ Key Idea: Gravity pulls everything towards the center of mass."""
     print(f"   -> Query: '{query}'")
     results = search_engine.search(query)
     for i, res in enumerate(results):
-        print(f"      {i+1}. [{res.source.upper()}] Score: {res.score:.4f} | \"{res.text.replace(chr(10), ' ')[:40]}...\"")
+        print(f"      {i+1}. [{res['id'].upper()}] Score: {res['score']:.4f} | \"{res['text'].replace(chr(10), ' ')[:40]}...\"")
 
     # 8. Intelligence
     print(f"\n[STEP 7] INTELLIGENCE LAYER (Graph -> Insights)")
@@ -110,9 +126,6 @@ Key Idea: Gravity pulls everything towards the center of mass."""
         print(f"   -> [INSIGHT] {insight['type']}: {insight['text']} ({insight['message']})")
     
     print("\n" + "="*60 + "\n")
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()

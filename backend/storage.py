@@ -1,49 +1,54 @@
-from typing import Protocol, Optional, Union
-from abc import ABC, abstractmethod
-import os
-import shutil
+from typing import List, Tuple
+import psycopg
+import numpy as np
 
-class StorageInterface(Protocol):
-    def put(self, uri: str, data: bytes) -> None:
-        ...
 
-    def get(self, uri: str) -> bytes:
-        ...
-        
-    def exists(self, uri: str) -> bool:
-        ...
+class PostgresMetadataStorage:
+    def __init__(self, conn_string: str, embedding_dim: int = 384):
+        self.conn = psycopg.connect(conn_string)
+        self.embedding_dim = embedding_dim
 
-class LocalFSStorage:
-    def __init__(self, base_path: str):
-        self.base_path = base_path
-        os.makedirs(base_path, exist_ok=True)
+    def _to_list(self, embedding):
+        if isinstance(embedding, np.ndarray):
+            embedding = embedding.tolist()
 
-    def _resolve(self, uri: str) -> str:
-        # Simple mock URI resolver: fs://path/to/file -> base_path/path/to/file
-        # Remove scheme
-        if uri.startswith("fs://"):
-            rel_path = uri[5:]
-        else:
-            rel_path = uri
-            
-        full_path = os.path.join(self.base_path, rel_path)
-        return full_path
+        if not isinstance(embedding, list):
+            raise TypeError("Embedding must be list or numpy array")
 
-    def put(self, uri: str, data: bytes) -> None:
-        path = self._resolve(uri)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'wb') as f:
-            f.write(data)
+        if len(embedding) != self.embedding_dim:
+            raise ValueError(f"Embedding must be dimension {self.embedding_dim}")
 
-    def get(self, uri: str) -> bytes:
-        path = self._resolve(uri)
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"File not found: {uri}")
-        with open(path, 'rb') as f:
-            return f.read()
-            
-    def exists(self, uri: str) -> bool:
-        path = self._resolve(uri)
-        return os.path.exists(path)
+        return embedding
 
-# Mock DB Interfaces would go here (e.g., using a dict or sqlite for metadata)
+    def insert_chunk(self, chunk_id, text, token_count, embedding):
+        embedding = self._to_list(embedding)
+
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO chunks (id, text, token_count, embedding)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (chunk_id, text, token_count, embedding)
+                )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def search_vector(self, query_vec, limit=5) -> List[Tuple]:
+        query_vec = self._to_list(query_vec)
+
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, text, embedding <-> %s AS distance
+                FROM chunks
+                ORDER BY embedding <-> %s
+                LIMIT %s
+                """,
+                (query_vec, query_vec, limit)
+            )
+            return cur.fetchall()
