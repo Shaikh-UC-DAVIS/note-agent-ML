@@ -1,61 +1,70 @@
-# Note Agent - ML Core
+# Note Agent: Machine Learning Pipeline
 
-This repository contains the Machine Learning components for the Note Agent system.
+The ML pipeline transforms raw documents (PDFs, DOCX) into a structured Knowledge Graph, enabling semantic search and intelligent insights (contradiction detection, consolidation).
 
-## Directory Structure
+## 🚀 Quick Start for Developers
 
-- `ml/`: Core ML logic.
-  - `ingestion.py`: Text extraction, chunking, and embedding generation.
-  - `extraction.py`: LLM-based structured extraction (currently using a mock for development).
-  - `graph.py`: Knowledge Graph management using NetworkX.
-  - `search.py`: Hybrid search engine combining vector and keyword search.
-  - `intelligence.py`: Logic for detecting contradictions and generating insights.
-- `backend/`: Shared utilities (currently mocks).
-  - `storage.py`: Abstract storage interface and LocalFS implementation.
+### 1. Prerequisites
+- Python 3.10+
+- PostgreSQL 16 with `pgvector` extension
+- Docker (optional, for running Postgres easily)
 
-## Setup
+### 2. Environment Setup
+```bash
+# Create and activate venv
+python3 -m venv venv
+source venv/bin/activate
 
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+# Install dependencies
+pip install -r requirements.txt
+```
 
-2. Run the demo:
-   ```bash
-   python demo.py
-   ```
+### 3. Database Setup
+You need a running Postgres instance.
+```bash
+# Option A: Docker (Recommended)
+docker run -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d pgvector/pgvector:pg16
 
-## Development Notes
+# Option B: Local Install
+# Ensure you have 'postgres' user created and 'pgvector' extension installed
+```
 
-- **Database**: The system is designed to use PostgreSQL + pgvector, but currently uses in-memory mocks for the ML development phase.
-- **LLM**: The `LLMExtractor` class in `ml/extraction.py` currently has a mock implementation. To use a real LLM, uncomment the OpenAI client initialization and implement the API call.
-- **Embeddings**: Uses `sentence-transformers`. If not installed, the `ingestion` module will fallback gracefully (as seen in the demo).
+### 4. Initialize & Seed Data
+We rely on a set of Python scripts to manage the database state.
+```bash
+# Create the database 'note_agent'
+python scripts/create_db.py
 
-## System Workflows
+# Apply schema and seed with 'Strategic Q1' dummy data
+python scripts/seed_db.py
+```
 
-The ML pipeline follows a sequential data transformation process. For a detailed breakdown and sequence diagram, see [docs/workflow.md](docs/workflow.md).
+## 🛠️ Developer Tools (`scripts/`)
 
-### 1. Ingestion (`ml/ingestion.py`)
-- **Input**: Raw text file or string.
-- **Action**: Tokenizes text into overlapping chunks and generates vector embeddings.
-- **Output**: List of `Chunk` objects and their `Vector` representations.
+| Script | Description |
+| :--- | :--- |
+| `create_db.py` | Creates the `note_agent` database if missing. |
+| `seed_db.py` | Applies `backend/schema.sql` and populates dummy data (Notes, Spans, Objects). |
+| `inspect_db.py` | CLI tool to list tables and view rows as JSON. |
+| `check_data.py` | Runs a health check and prints counts of all entities. |
 
-### 2. Structured Extraction (`ml/extraction.py`)
-- **Input**: Raw text.
-- **Action**: Uses an LLM (mocked) to identify concepts (Ideas, Claims) and their relationships.
-- **Output**: `ExtractionResult` with strictly typed objects.
+**Usage Examples:**
+```bash
+# Check if data loaded correctly
+python scripts/check_data.py
 
-### 3. Knowledge Graph Construction (`ml/graph.py`)
-- **Input**: Extracted objects and links.
-- **Action**: Builds a directed graph where nodes are concepts and edges are relationships (e.g., `Supports`, `Contradicts`).
-- **Output**: NetworkX graph structure.
+# Inspect specific table content
+python scripts/inspect_db.py objects --limit 5
+```
 
-### 4. Hybrid Search (`ml/search.py`)
-- **Input**: User query string.
-- **Action**: Performs parallel Vector Search (semantic) and Keyword Search (exact), then merges and reranks results.
-- **Output**: Ranked list of relevant text chunks.
+## 📂 Project Structure
 
-### 5. Intelligence Layer (`ml/intelligence.py`)
-- **Input**: Knowledge Graph.
-- **Action**: Analyzes graph topology to find contradictions and generate insights (e.g., core themes, stale threads).
-- **Output**: List of `Insight` objects.
+- **`ml/`**: Core logic for the pipeline.
+    - `ingestion.py`: Text extraction and chunking.
+    - `extraction.py`: LLM client for structured data.
+    - `graph.py`: NetworkX graph operations.
+    - `search.py`: Hybrid search (Vector + Keyword).
+- **`backend/`**: Database interactions.
+    - `schema.sql`: Source of truth for DB structure.
+    - `postgres_storage.py`: Storage class for artifacts.
+- **`scripts/`**: DevOps and utility scripts.
