@@ -1,105 +1,498 @@
-from typing import List, Optional, Literal
-from pydantic import BaseModel, Field
 import json
+import os
+import re
+import uuid
+from typing import List, Optional, Literal
+from pydantic import BaseModel, Field, field_validator
+from openai import OpenAI
+from ml.config import config
+from ml.ingestion import Chunk
 
-# Define the structured output models
+# ── Structured output models (Stage 3/4) ──────────────────────────────────────
+
 class ExtractedObject(BaseModel):
-    id: str = Field(description="Unique identifier for the object")
+    """
+    Represents a knowledge object extracted from text (objects table row).
+    This is the core data unit for the Knowledge Graph.
+    """
+    id: str = Field(description="Unique identifier for the object (e.g., obj_001)")
     type: Literal['Idea', 'Claim', 'Assumption', 'Question', 'Task', 'Evidence', 'Definition']
-    canonical_text: str = Field(description="The concise, canonical text representation of the object")
-    confidence: float = Field(description="Confidence score between 0.0 and 1.0")
+    canonical_text: str = Field(description="The concise, canonical text of the object")
+    confidence: float = Field(description="Confidence score 0.0-1.0")
+    context: Optional[str] = Field(default=None, description="Surrounding context from source text")
+    span_start: Optional[int] = Field(default=None, description="Start char position in source text")
+    span_end: Optional[int] = Field(default=None, description="End char position in source text")
+
+    @field_validator('confidence')
+    @classmethod
+    def clamp_confidence(cls, v):
+        """Ensures confidence scores remain within the 0.0 to 1.0 range."""
+        return max(0.0, min(1.0, v))
+
 
 class Link(BaseModel):
+    """
+    Represents a semantic relationship between two knowledge objects (links table row).
+    This connects the nodes in the Knowledge Graph.
+    """
     source_id: str
     target_id: str
     type: Literal['Supports', 'Contradicts', 'Refines', 'DependsOn', 'SameAs', 'Causes']
     confidence: float
+    evidence_span_id: Optional[str] = Field(default=None, description="Span where this link was found")
+
+    @field_validator('confidence')
+    @classmethod
+    def clamp_confidence(cls, v):
+        """Ensures confidence scores remain within the 0.0 to 1.0 range."""
+        return max(0.0, min(1.0, v))
+
+
+class ObjectMention(BaseModel):
+    """Links an extracted object back to its source span (object_mentions table row)."""
+    object_id: str
+    note_id: str = Field(default="note_local", description="Source note ID")
+    span_id: str = Field(default="span_full", description="Source span ID")
+    role: str = Field(default="primary")
+    confidence: float
+
 
 class ExtractionResult(BaseModel):
+    """Complete extraction output containing objects, links, and provenance mentions."""
     objects: List[ExtractedObject]
     links: List[Link]
+    mentions: List[ObjectMention] = []
+
+
+# ── LLM Extractor ─────────────────────────────────────────────────────────────
+
+# Per-type definitions matching ML_doc.pdf Stage 4 (page 8-9)
+# "For each object type: Design LLM prompt specific to that type"
+OBJECT_TYPE_DEFINITIONS = {
+    'Idea': 'novel concepts, proposals, strategies, or creative thoughts',
+    'Claim': 'factual assertions that can be true or false',
+    'Assumption': 'unstated premises taken for granted',
+    'Question': 'open questions or inquiries',
+    'Task': 'action items or to-dos',
+    'Evidence': 'data, observations, or citations supporting a claim',
+    'Definition': 'formal definitions of terms or concepts',
+}
+
+# Per-type prompt template (exact format from ML_doc.pdf page 9)
+PER_TYPE_SYSTEM_PROMPT = "You are an expert at analyzing notes and extracting structured information."
+
+# Link types for relationship extraction pass
+LINK_TYPES = {
+    'Supports': 'Source provides direct evidence, data, or logical proof for the target.',
+    'Contradicts': 'Source explicitly conflicts with, opposes, or refutes the target.',
+    'Refines': 'Source adds detail, nuances, or clarifies the target without changing its core meaning.',
+    'DependsOn': 'Source requires the target to be true or completed first (prerequisite).',
+    'SameAs': 'Source and target express the same fundamental idea or fact using different wording.',
+    'Causes': 'Source leads to the target as a direct consequence or result.',
+}
+
+
+def _attempt_json_repair(raw: str) -> Optional[dict]:
+    """
+    Safety Fallback: Attempts to repair malformed JSON from the LLM.
+    Useful for common issues like markdown fences or trailing commas 
+    that break standard json.loads().
+    """
+    # Strip markdown fences
+    cleaned = re.sub(r'^```(?:json)?\s*', '', raw.strip())
+    cleaned = re.sub(r'\s*```$', '', cleaned)
+
+    # Strip non-printable control characters (except newlines/tabs)
+    cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', cleaned)
+
+    # Fix trailing commas before } or ]
+    cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        return None
+
 
 class LLMExtractor:
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4-turbo"):
+    """
+    Core Extraction Engine responsible for transforming raw text into a structured Knowledge Graph.
+    Implements a robust 8-step process with error handling and traceablity.
+    """
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, verbose: bool = False):
         """
-        Initialize the LLMExtractor.
+        Initialization: Resolves API keys and sets the LLM provider (OpenAI or Groq).
         
         Args:
-            api_key: OpenAI API key. If None, expects OPENAI_API_KEY env var.
-            model: The LLM model to use.
+            api_key: Optional override for environment keys.
+            model: Optional override for the default model choice.
+            verbose: Enables debug printing (Raw JSON and Linker details).
         """
-        self.model = model
-        # In a real implementation, we would initialize the OpenAI client here.
-        # self.client = OpenAI(api_key=api_key)
-        pass
-
-    def extract(self, text: str) -> ExtractionResult:
-        """
-        Extracts structured objects and links from the given text.
+        # Resolve key and provider
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        groq_key = os.environ.get("GROQ_API_KEY")
         
+        resolved_key = api_key or openai_key or groq_key
+        
+        if resolved_key and (resolved_key.startswith("sk-") or "openai" in str(api_key).lower()):
+            base_url = "https://api.openai.com/v1"
+            self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o")
+        else:
+            base_url = "https://api.groq.com/openai/v1"
+            self.model = model or os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+        if not resolved_key:
+            raise ValueError("No API key provided. Check your .env file.")
+
+        self.client = OpenAI(
+            api_key=resolved_key,
+            base_url=base_url,
+        )
+
+        # Simulated database tables
+        self.objects_table: List[ExtractedObject] = []
+        self.links_table: List[Link] = []
+        self.verbose = verbose
+
+    def extract(self, text: str, note_id: str = "note_local", span_id: str = "span_full", chunks: Optional[List[Chunk]] = None) -> ExtractionResult:
+        """
+        The Master Orchestrator: Executes the 8-step pipeline to extract knowledge.
+        
+        This method is "Resilient": It can handle raw text directly, or work with 
+        pre-processed chunks. If chunks are provided but missing offsets, it 
+        re-calculates them locally to ensure every object is traceable.
+
         Args:
-            text: The unstructured text to process.
-            
-        Returns:
-            An ExtractionResult containing the extracted objects and links.
+            text: Raw unstructured text.
+            note_id: Source document ID for the database.
+            span_id: Default span ID if chunk-based mapping fails.
+            chunks: List of Chunk objects from the ingestion pipeline.
         """
-        # Mock implementation for now to allow progress without live API keys
-        # This simulates what the LLM would return
-        
-        print(f"DEBUG: Mock extracting from text: {text[:50]}...")
-        
-        # Simple heuristic mock: if text contains "earth", create relevant objects
-        mock_objects = []
-        mock_links = []
-        
-        lower_text = text.lower()
-        
-        if "earth" in lower_text:
-            mock_objects.append(ExtractedObject(
-                id="claim-earth-round",
-                type="Claim",
-                canonical_text="The earth is round",
-                confidence=0.95
-            ))
-            mock_objects.append(ExtractedObject(
-                id="claim-earth-flat",
-                type="Claim",
-                canonical_text="The earth is flat",
-                confidence=0.4
-            ))
-            # Link them as contradictory
-            mock_links.append(Link(
-                source_id="claim-earth-round",
-                target_id="claim-earth-flat",
-                type="Contradicts",
-                confidence=0.9
-            ))
+        # Step 1: Note text is already loaded and passed in
+        all_objects: List[ExtractedObject] = []
+        obj_counter = 0
 
-        if "gravity" in lower_text:
-            mock_objects.append(ExtractedObject(
-                id="idea-gravity",
-                type="Idea",
-                canonical_text="Gravity pulls everything towards the center of mass",
-                confidence=0.9
-            ))
-            # Link gravity to earth round
-            if "earth" in lower_text:
-                 mock_links.append(Link(
-                    source_id="idea-gravity",
-                    target_id="claim-earth-round",
-                    type="Supports",
-                    confidence=0.85
-                ))
+        # Step 2: Extract all object types in a single unified pass
+        all_objects = self._extract_batch(text)
+
+        if not all_objects:
+            print("[Extraction] ✗ No objects extracted.")
+            return ExtractionResult(objects=[], links=[], mentions=[])
+
+        # Deduplicate and re-number IDs (Technical cleanup)
+        all_objects = self._deduplicate_objects(all_objects)
+
+        # Step 7: Identify relationships between objects
+        links = self._extract_relationships(text, all_objects)
+
+        # Step 6 & 8: Process and "Save" data
+        mentions = []
+        
+        # Calculate chunk offsets locally if they are missing (-1)
+        # This allows us to map objects back to spans without modifying ingestion.py
+        if chunks:
+            current_search_pos = 0
+            for chunk in chunks:
+                if chunk.start_char_idx <= 0:
+                    # Create a regex that allows any whitespace between the significant tokens of the chunk
+                    parts = [re.escape(p) for p in chunk.text.split() if p]
+                    if not parts:
+                        continue
+                    flexible_pattern = r"\s+".join(parts)
+                    
+                    match = re.search(flexible_pattern, text[current_search_pos:], re.DOTALL)
+                    if match:
+                        chunk.start_char_idx = current_search_pos + match.start()
+                        chunk.end_char_idx = current_search_pos + match.end()
+                        current_search_pos = chunk.start_char_idx + 1
+                    else:
+                        match_global = re.search(flexible_pattern, text, re.DOTALL)
+                        if match_global:
+                            chunk.start_char_idx = match_global.start()
+                            chunk.end_char_idx = match_global.end()
+
+        for obj in all_objects:
+            # Step 6: Link back to source span
+            resolved_span_id = span_id
+            if chunks and obj.span_start is not None:
+                for idx, chunk in enumerate(chunks):
+                    # Check if object starts within this chunk
+                    if chunk.start_char_idx != -1 and chunk.start_char_idx <= obj.span_start <= chunk.end_char_idx:
+                        resolved_span_id = f"span_{idx:03d}"
+                        break
             
-        return ExtractionResult(objects=mock_objects, links=mock_links)
+            mentions.append(ObjectMention(
+                object_id=obj.id,
+                note_id=note_id,
+                span_id=resolved_span_id,
+                role="primary",
+                confidence=obj.confidence,
+            ))
+            # Step 6: Insert into objects table (Simulated)
+            self._save_to_objects_table(obj)
 
-    def _construct_prompt(self, text: str) -> str:
-        """Constructs the prompt for the LLM."""
-        return f"""
-        Analyze the following text and extract structured knowledge objects.
-        
-        Text:
-        {text}
-        
-        Output JSON matching the ExtractionResult schema.
+        for link in links:
+            # Step 8: Insert into links table (Simulated)
+            self._save_to_links_table(link)
+
+        # Print summary
+        type_counts = {}
+        for obj in all_objects:
+            type_counts[obj.type] = type_counts.get(obj.type, 0) + 1
+        counts_str = ", ".join(f"{count} {t}{'s' if count != 1 else ''}" for t, count in type_counts.items())
+
+        print(f"[Extraction] ✓ Extracted {len(all_objects)} objects ({counts_str}), "
+              f"{len(links)} links  (model={self.model})")
+
+        return ExtractionResult(objects=all_objects, links=links, mentions=mentions)
+
+    def _save_to_objects_table(self, obj: ExtractedObject):
         """
+        Step 6: Simulated database insertion. 
+        In production, this would perform a SQL INSERT into the 'objects' table.
+        """
+        self.objects_table.append(obj)
+
+    def _save_to_links_table(self, link: Link):
+        """
+        Step 8: Simulated database insertion.
+        In production, this would perform a SQL INSERT into the 'links' table.
+        """
+        self.links_table.append(link)
+
+    def _deduplicate_objects(self, all_objects: List[ExtractedObject]) -> List[ExtractedObject]:
+        """
+        Technical Cleanup: Removes redundant extractions based on semantic overlap.
+        Orders objects by type priority to ensure the most specific classification is kept.
+        """
+        TYPE_PRIORITY = {'Idea': 1, 'Question': 2, 'Task': 3, 'Assumption': 4,
+                         'Definition': 5, 'Evidence': 6, 'Claim': 7}
+        all_objects.sort(key=lambda o: TYPE_PRIORITY.get(o.type, 99))
+
+        deduped = []
+        seen_texts = []
+        for obj in all_objects:
+            obj_text = obj.canonical_text.lower().strip()
+            is_dup = False
+            for seen in seen_texts:
+                words_a = set(obj_text.split())
+                words_b = set(seen.split())
+                if not words_a or not words_b: continue
+                overlap = len(words_a & words_b) / max(len(words_a), len(words_b))
+                if overlap > 0.8:
+                    is_dup = True
+                    break
+            if not is_dup:
+                deduped.append(obj)
+                seen_texts.append(obj_text)
+
+        # Re-number IDs for clean presentation
+        for i, obj in enumerate(deduped):
+            obj.id = f"obj_{i + 1:03d}"
+        
+        if len(deduped) < len(all_objects):
+             print(f"  [Dedup] {len(all_objects)} → {len(deduped)} objects (removed {len(all_objects) - len(deduped)} duplicates)")
+        return deduped
+
+    def _extract_batch(self, text: str, is_retry: bool = False) -> List[ExtractedObject]:
+        """
+        Unified Pass (Steps 2-5): Extracts all knowledge objects in one LLM call.
+        This optimizes for speed and cost while providing the model with full context.
+        Includes built-in validation (Step 4) and regeneration (Step 5).
+        """
+        type_definitions_str = "\n".join([f"- {t}: {d}" for t, d in OBJECT_TYPE_DEFINITIONS.items()])
+        
+        user_prompt = f"""From the following text, extract all knowledge objects matching these definitions:
+
+{type_definitions_str}
+
+Text:
+\"\"\"
+{text}
+\"\"\"
+
+Return JSON:
+{{
+  "objects": [
+    {{
+      "type": "Idea|Claim|Assumption|Question|Task|Evidence|Definition",
+      "text": "<the verbatim text segment>",
+      "context": "<surrounding context for clarity>",
+      "confidence": 0.0-1.0,
+      "span_start": <char position>,
+      "span_end": <char position>
+    }}
+  ]
+}}
+
+Be precise and exhaustive. Ensure every important idea, claim, or question is captured."""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": PER_TYPE_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=config['temperature'],
+                max_tokens=config['max_tokens'],
+                timeout=config['timeout'],
+            )
+
+            raw_json = response.choices[0].message.content
+            
+            if self.verbose:
+                print(f"\n[DEBUG] Raw JSON Response (Objects):\n{raw_json}\n")
+
+            # Step 3: Parse JSON
+            parsed = None
+            try:
+                parsed = json.loads(raw_json)
+            except json.JSONDecodeError:
+                # Step 5: If malformed → attempt repair
+                parsed = _attempt_json_repair(raw_json)
+
+            # Step 5: If still invalid → REGENERATE (once)
+            if parsed is None:
+                if not is_retry:
+                    print(f"  [Batch] ⚠ Malformed JSON. Attempting REGENERATION...")
+                    return self._extract_batch(text, is_retry=True)
+                else:
+                    print(f"  [Batch] ✗ Regeneration failed.")
+                    return []
+
+            # Step 4: Validate against JSON schema
+            items = parsed.get('objects', [])
+            
+            objects = []
+            for i, item in enumerate(items):
+                try:
+                    obj = ExtractedObject(
+                        id=f"temp_{i}", # Re-numbered by _deduplicate_objects
+                        type=item.get('type'),
+                        canonical_text=item.get('text', item.get('canonical_text', '')),
+                        confidence=item.get('confidence', 0.8),
+                        context=item.get('context'),
+                        span_start=item.get('span_start'),
+                        span_end=item.get('span_end'),
+                    )
+                    objects.append(obj)
+                except Exception:
+                    continue  # Skip malformed items
+
+            # Logging summary of extraction
+            type_counts = {}
+            for obj in objects:
+                type_counts[obj.type] = type_counts.get(obj.type, 0) + 1
+            type_info = ", ".join([f"{c} {t}" for t, c in type_counts.items()])
+            print(f"  [Batch] → Extracted {len(objects)} objects ({type_info})")
+
+            return objects
+
+        except Exception as e:
+            if not is_retry:
+                print(f"  [Batch] ⚠ LLM call failed ({e}). Attempting REGENERATION...")
+                return self._extract_batch(text, is_retry=True)
+            print(f"  [Batch] ✗ LLM call failed significantly: {e}")
+            return []
+
+    def _extract_relationships(self, text: str, objects: List[ExtractedObject], is_retry: bool = False) -> List[Link]:
+        """
+        Relationship Pass (Step 7): Analyzes the extracted nodes to find edges.
+        Specific logic for nuanced links like 'Contradicts' or 'Causes' is applied here.
+        """
+        if len(objects) < 2:
+            return []
+
+        # Build a summary of all objects for the relationship prompt
+        objects_summary = "\n".join(
+            f"  {obj.id}: [{obj.type}] \"{obj.canonical_text}\"" for obj in objects
+        )
+
+        link_types_str = "\n".join(f"  - {k}: {v}" for k, v in LINK_TYPES.items())
+
+        user_prompt = f"""Given the following text and extracted objects, identify ALL semantic relationships between them.
+Pay close attention to complex relationships like Contradictions, Refinements, and Dependencies.
+
+Text:
+\"\"\"
+{text}
+\"\"\"
+
+Extracted objects:
+{objects_summary}
+
+Relationship types:
+{link_types_str}
+
+Return JSON:
+{{
+  "links": [
+    {{
+      "source_id": "<obj_XXX>",
+      "target_id": "<obj_YYY>",
+      "type": "Supports|Contradicts|Refines|DependsOn|SameAs|Causes",
+      "reasoning": "<brief explanation of why this link exists>",
+      "confidence": 0.0-1.0
+    }}
+  ]
+}}
+
+Be exhaustive and highly perceptive. Look for:
+1. PREREQUISITES: Does X need Y to happen first? (DependsOn)
+2. CONFLICTS: Does X imply Y is not true or redundant? (Contradicts)
+3. DETAILS: Does X provide a specific number, name, or date for Y? (Refines)
+
+Only include relationships where there is a clear semantic connection supported by the text."""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": PER_TYPE_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=config['temperature'],
+                max_tokens=config['max_tokens'],
+                timeout=config['timeout'],
+            )
+
+            raw_json = response.choices[0].message.content
+
+            if self.verbose:
+                print(f"\n[DEBUG] Raw JSON Response (Links):\n{raw_json}\n")
+
+            parsed = None
+            try:
+                parsed = json.loads(raw_json)
+            except json.JSONDecodeError:
+                parsed = _attempt_json_repair(raw_json)
+
+            if parsed is None:
+                if not is_retry:
+                    print(f"  [Relationships] ⚠ Malformed JSON. Attempting REGENERATION...")
+                    return self._extract_relationships(text, objects, is_retry=True)
+                return []
+
+            # Validate each link
+            valid_ids = {obj.id for obj in objects}
+            links = []
+            for item in parsed.get('links', []):
+                try:
+                    link = Link(**item)
+                    if link.source_id in valid_ids and link.target_id in valid_ids:
+                        links.append(link)
+                except Exception:
+                    continue
+
+            return links
+
+        except Exception as e:
+            if not is_retry:
+                 print(f"  [Relationships] ⚠ LLM call failed ({e}). Attempting REGENERATION...")
+                 return self._extract_relationships(text, objects, is_retry=True)
+            print(f"  [Relationships] ✗ LLM call failed significantly: {e}")
+            return []
+

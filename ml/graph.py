@@ -10,13 +10,16 @@ class KnowledgeGraph:
         self.graph = nx.DiGraph()
 
     def add_objects(self, objects: List[ExtractedObject]):
-        """Adds extracted objects as nodes to the graph."""
+        """Adds extracted objects as nodes to the graph (Stage 4 enriched)."""
         for obj in objects:
             self.graph.add_node(
                 obj.id,
                 type=obj.type,
                 canonical_text=obj.canonical_text,
-                confidence=obj.confidence
+                confidence=obj.confidence,
+                context=obj.context,
+                span_start=obj.span_start,
+                span_end=obj.span_end,
             )
 
     def add_links(self, links: List[Link]):
