@@ -39,6 +39,15 @@ python scripts/create_db.py
 python scripts/seed_db.py
 ```
 
+### 5. Run the End-to-End Pipeline
+The primary script for orchestrating and verifying out the ML transformation stages is `demo.py`. It runs Stages 1-4 (Text Extraction, Chunking, Vector Embeddings, Structured Extraction) using an LLM.
+
+You MUST define your Groq or OpenAI API key before running the structured extraction (Stage 4).
+```bash
+export GROQ_API_KEY="your-api-key-here"
+python3 demo.py
+```
+
 ## 🛠️ Developer Tools (`scripts/`)
 
 | Script | Description |
