@@ -52,12 +52,12 @@ class EmbeddingPipeline:
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, content
+                SELECT id, text
                 FROM spans
                 WHERE note_id = %s
                 AND embedding IS NULL;
                 """,
-                (note_id,)
+                (str(note_id),)
             )
             return cur.fetchall()
 
