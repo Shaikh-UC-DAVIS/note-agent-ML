@@ -60,7 +60,7 @@ python scripts/inspect_db.py objects --limit 5
 ## 📂 Project Structure
 
 - **`ml/`**: Core logic for the pipeline.
-    - `ingestion.py`: Text extraction and chunking.
+    - `extraction_tasks.py`: Text extraction and chunking tasks.
     - `extraction.py`: LLM client for structured data.
     - `graph.py`: NetworkX graph operations.
     - `search.py`: Hybrid search (Vector + Keyword).

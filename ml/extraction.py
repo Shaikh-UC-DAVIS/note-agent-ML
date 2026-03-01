@@ -2,11 +2,20 @@ import json
 import os
 import re
 import uuid
-from typing import List, Optional, Literal
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 from openai import OpenAI
 from ml.config import config
-from ml.ingestion import Chunk
+
+
+@dataclass
+class Chunk:
+    text: str
+    start_char_idx: int
+    end_char_idx: int
+    token_count: int
+    metadata: Dict[str, Any]
 
 # ── Structured output models (Stage 3/4) ──────────────────────────────────────
 
@@ -166,7 +175,7 @@ class LLMExtractor:
             text: Raw unstructured text.
             note_id: Source document ID for the database.
             span_id: Default span ID if chunk-based mapping fails.
-            chunks: List of Chunk objects from the ingestion pipeline.
+            chunks: List of Chunk objects from the chunking pipeline.
         """
         # Step 1: Note text is already loaded and passed in
         all_objects: List[ExtractedObject] = []
@@ -189,7 +198,7 @@ class LLMExtractor:
         mentions = []
         
         # Calculate chunk offsets locally if they are missing (-1)
-        # This allows us to map objects back to spans without modifying ingestion.py
+        # This allows us to map objects back to spans without depending on a specific chunker.
         if chunks:
             current_search_pos = 0
             for chunk in chunks:
@@ -495,4 +504,3 @@ Only include relationships where there is a clear semantic connection supported 
                  return self._extract_relationships(text, objects, is_retry=True)
             print(f"  [Relationships] ✗ LLM call failed significantly: {e}")
             return []
-

@@ -73,10 +73,10 @@ sequenceDiagram
 For editors that do not support Mermaid, here is the text-based flow:
 
 1. **[User]** runs `demo.py`
-2. **[Demo]** calls `TextIngestion.chunk_text(raw_text)`
-   - Returns: List of split text chunks
-3. **[Demo]** calls `EmbeddingGenerator.generate_embeddings(chunks)`
-   - Returns: List of vector embeddings
+2. **[Demo]** calls `extract_text_task(note_id)`
+   - Returns: Extracted/cleaned text
+3. **[Demo]** calls `chunk_text_task(note_id)`
+   - Returns: Span records written to storage
 4. **[Demo]** indexes chunks into `HybridSearchEngine`
 5. **[Demo]** calls `LLMExtractor.extract(raw_text)`
    - Returns: Structured Objects (Ideas, Claims) and Links
@@ -92,15 +92,15 @@ For editors that do not support Mermaid, here is the text-based flow:
 
 ## Detailed Function Call Breakdown
 
-### 1. Ingestion (`ml/ingestion.py`)
-- **`chunk_text(text, window_size, overlap)`**:
-  - **Input**: Raw string.
-  - **Process**: Tokenizes text using `tiktoken`, creates sliding windows (e.g., 20 tokens long with 5 overlap).
-  - **Output**: List of `Chunk` objects containing text and metadata.
-- **`generate_embeddings(chunks)`**:
-  - **Input**: List of `Chunk` objects.
-  - **Process**: Uses `sentence-transformers` (or mock) to convert text into vector representations (lists of floats).
-  - **Output**: List of vectors (e.g., 384-dimensional arrays).
+### 1. Extraction + Chunking Tasks (`ml/extraction_tasks.py`)
+- **`extract_text_task(note_id)`**:
+  - **Input**: Note id with file metadata.
+  - **Process**: Extracts text by file type (PDF/DOCX/image/text), cleans it, and writes `derived/.../extracted.txt`.
+  - **Output**: Cleaned text.
+- **`chunk_text_task(note_id, window_size, overlap)`**:
+  - **Input**: Note id with extracted/cleaned text.
+  - **Process**: Sentence segmentation with spaCy, token windowing with `tiktoken`, writes `derived/.../chunks.jsonl`.
+  - **Output**: Span records in DB + chunk jsonl.
 
 ### 2. Search Indexing (`ml/search.py`)
 - **`index_chunk(id, text, vector)`**:
