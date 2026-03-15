@@ -18,7 +18,7 @@ from ml.extraction import LLMExtractor, ExtractionResult, _attempt_json_repair
 
 # Only reset feedback DB if --reset flag is passed
 if "--reset" in sys.argv:
-    _fb_path = Path("feedback.db")
+    _fb_path = Path(__file__).resolve().parent.parent / "feedback.db"
     if _fb_path.exists():
         _fb_path.unlink()
         print("[Setup] Cleared feedback.db")
