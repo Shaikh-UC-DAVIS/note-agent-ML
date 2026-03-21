@@ -4,3 +4,9 @@ cache/
 __pycache__/
 ml/__pycache__/
 *.db
+
+.DS_Store
+
+.venv/
+venv/
+env/

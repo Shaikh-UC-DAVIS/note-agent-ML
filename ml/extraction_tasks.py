@@ -9,6 +9,7 @@ import os
 import re
 import time
 import hashlib
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -46,10 +47,18 @@ try:
 except Exception:  # pragma: no cover - optional dependency for runtime use
     spacy = None
 
+try:
+    import whisper
+except Exception:  # pragma: no cover - optional dependency for runtime use
+    whisper = None
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 UPLOADS_DIR = Path(os.environ.get("NOTE_AGENT_UPLOADS_DIR", REPO_ROOT / "uploads"))
 DERIVED_DIR = Path(os.environ.get("NOTE_AGENT_DERIVED_DIR", REPO_ROOT / "derived"))
+
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a"}
+VIDEO_EXTENSIONS = {".mp4"}
 
 if spacy is not None:
     try:
@@ -102,6 +111,14 @@ def _guess_mime_type(file_path: str) -> str:
         return "application/pdf"
     if suffix == ".docx":
         return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if suffix == ".mp3":
+        return "audio/mpeg"
+    if suffix == ".wav":
+        return "audio/wav"
+    if suffix == ".m4a":
+        return "audio/mp4"
+    if suffix == ".mp4":
+        return "video/mp4"
     if suffix in {".png", ".jpg", ".jpeg", ".tiff", ".bmp"}:
         return "image"
     if suffix in {".txt", ".md", ".csv", ".tsv"}:
@@ -122,6 +139,15 @@ def _resolve_file_path(note: Dict[str, Union[str, int]]) -> Path:
         ext = ".txt"
     elif "docx" in mime_type:
         ext = ".docx"
+    elif mime_type.startswith("audio/"):
+        if "mpeg" in mime_type:
+            ext = ".mp3"
+        elif "wav" in mime_type:
+            ext = ".wav"
+        else:
+            ext = ".m4a"
+    elif mime_type.startswith("video/"):
+        ext = ".mp4"
     elif mime_type.startswith("image/") or mime_type == "image":
         ext = ".png"
     return (UPLOADS_DIR / workspace_id / str(note["id"]) / f"{file_id}{ext}").resolve()
@@ -200,6 +226,25 @@ def _extract_image_text(image_path: Path) -> str:
     return pytesseract.image_to_string(image)
 
 
+def _needs_ffmpeg(path: Path) -> bool:
+    return path.suffix.lower() not in {".wav"}
+
+
+def _transcribe_with_whisper(file_path: Path) -> str:
+    if whisper is None:
+        raise RuntimeError("whisper is not installed.")
+    if _needs_ffmpeg(file_path) and shutil.which("ffmpeg") is None:
+        raise RuntimeError("ffmpeg is required to transcribe non-wav files with whisper.")
+    model_name = os.environ.get("WHISPER_MODEL", "base")
+    model = whisper.load_model(model_name)
+    result = model.transcribe(str(file_path))
+    return str(result.get("text") or "").strip()
+
+
+def _transcribe_audio_video(file_path: Path) -> str:
+    return _transcribe_with_whisper(file_path)
+
+
 def _with_retries(fn, attempts: int = 3) -> str:
     last_exc = None
     for attempt in range(attempts):
@@ -230,18 +275,25 @@ def extract_text_task(note_id: int) -> str:
     mime_type = note.get("mime_type") or _guess_mime_type(str(file_path))
 
     def _extract() -> str:
-        if mime_type == "application/pdf" or str(file_path).lower().endswith(".pdf"):
+        path_str = str(file_path).lower()
+        if mime_type == "application/pdf" or path_str.endswith(".pdf"):
             text = _extract_pdf_text_pdfplumber(file_path)
             if not text:
                 text = _extract_pdf_text_pypdf2(file_path)
             if not text:
                 text = _extract_pdf_text_pdfplumber_ocr(file_path)
             return text
-        if "docx" in mime_type or str(file_path).lower().endswith(".docx"):
+        if "docx" in mime_type or path_str.endswith(".docx"):
             return _extract_docx_text(file_path)
         if mime_type.startswith("image/") or mime_type == "image":
             return _extract_image_text(file_path)
-        if mime_type.startswith("text/") or str(file_path).lower().endswith((".txt", ".md", ".csv", ".tsv")):
+        if (
+            mime_type.startswith("audio/")
+            or mime_type.startswith("video/")
+            or Path(path_str).suffix in AUDIO_EXTENSIONS.union(VIDEO_EXTENSIONS)
+        ):
+            return _transcribe_audio_video(file_path)
+        if mime_type.startswith("text/") or path_str.endswith((".txt", ".md", ".csv", ".tsv")):
             return _read_text_file(file_path)
         return _read_text_file(file_path)
 
