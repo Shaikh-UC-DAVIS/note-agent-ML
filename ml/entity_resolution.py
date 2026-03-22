@@ -43,7 +43,7 @@ class EntityResolver:
         unchanged = 0
 
         for obj, embedding in zip(objects, embeddings):
-            match = self._find_most_similar(embedding, new_obj_ids, workspace_id)
+            match = self._find_most_similar(embedding, [obj["id"]], workspace_id)
             if match is None:
                 unchanged += 1
                 continue
