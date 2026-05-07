@@ -28,12 +28,12 @@ DB_CONN = "dbname=note_agent user=postgres password=postgres host=localhost"
 # Check for API keys needed for Stage 4
 API_KEY = os.environ.get("OPENAI_API_KEY") or os.environ.get("GROQ_API_KEY")
 if not API_KEY:
-    print(f"{Colors.FAIL}{Colors.BOLD}⚠ CRITICAL: You must export OPENAI_API_KEY or GROQ_API_KEY to run the Stage 4 demo!{Colors.ENDC}")
+    print(f"{Colors.FAIL}{Colors.BOLD}! CRITICAL: You must export OPENAI_API_KEY or GROQ_API_KEY to run the Stage 4 demo!{Colors.ENDC}")
     sys.exit(1)
 
 def print_step(title, desc):
     print(f"\n{Colors.HEADER}{Colors.BOLD}===================================================={Colors.ENDC}")
-    print(f"{Colors.HEADER}{Colors.BOLD}► {title}{Colors.ENDC}")
+    print(f"{Colors.HEADER}{Colors.BOLD}> {title}{Colors.ENDC}")
     print(f"{Colors.HEADER}{Colors.BOLD}===================================================={Colors.ENDC}")
     print(f"{Colors.OKCYAN}{desc}{Colors.ENDC}\n")
     time.sleep(2)
@@ -122,7 +122,7 @@ def run_demo():
     with sqlite3.connect("/tmp/noteagent/test.db") as s_conn:
         s_conn.row_factory = sqlite3.Row
         cleaned_txt = s_conn.execute("SELECT cleaned_text FROM notes WHERE id = 1").fetchone()["cleaned_text"]
-    print(f"{Colors.OKGREEN}✓ Extraction complete. Status updated to '{status}'.{Colors.ENDC}")
+    print(f"{Colors.OKGREEN}+ Extraction complete. Status updated to '{status}'.{Colors.ENDC}")
     
     input(f"\n{Colors.WARNING}Press [ENTER] to execute Stage 2 (Token Chunking)...{Colors.ENDC}")
     
@@ -152,7 +152,7 @@ def run_demo():
     str_note_id = 'demo_note_1'
     cur.execute("SELECT token_count, text FROM spans WHERE note_id = %s ORDER BY start_char", (str_note_id,))
     spans = cur.fetchall()
-    print(f"{Colors.OKGREEN}✓ Created {num_spans} chunks.{Colors.ENDC}\n")
+    print(f"{Colors.OKGREEN}+ Created {num_spans} chunks.{Colors.ENDC}\n")
 
     for idx, (tokens, text) in enumerate(spans[:3]):
         print(f"  {Colors.BOLD}[Chunk {idx:02d}] ({tokens} tokens){Colors.ENDC}: {textwrap.shorten(text, width=80)}")
@@ -173,7 +173,7 @@ def run_demo():
     cur.execute("SELECT embedding IS NOT NULL FROM spans WHERE note_id = %s LIMIT 3", (str_note_id,))
     emb_results = cur.fetchall()
     
-    print(f"{Colors.OKGREEN}✓ pgvector embedding HNSW index populated.{Colors.ENDC}\n")
+    print(f"{Colors.OKGREEN}+ pgvector embedding HNSW index populated.{Colors.ENDC}\n")
     for idx, (is_embedded,) in enumerate(emb_results):
         print(f"  {Colors.BOLD}[Chunk {idx:02d}]{Colors.ENDC} has vector: {is_embedded}")
 
@@ -187,7 +187,7 @@ def run_demo():
     extractor = LLMExtractor(verbose=False)
     result = extractor.extract(cleaned_txt, note_id=str(note_id))
     
-    print(f"\n{Colors.OKGREEN}✓ Extracted {len(result.objects)} objects and {len(result.links)} relationships.{Colors.ENDC}\n")
+    print(f"\n{Colors.OKGREEN}+ Extracted {len(result.objects)} objects and {len(result.links)} relationships.{Colors.ENDC}\n")
     
     print(f"{Colors.BOLD}EXTRACTED KNOWLEDGE NODES:{Colors.ENDC}")
     for obj in result.objects:
@@ -256,7 +256,7 @@ def run_demo():
     print("Calling: EntityResolver.resolve_entities_task()...")
     stats = resolver.resolve_entities_task(new_obj_ids, workspace_id='ws_demo')
 
-    print(f"{Colors.OKGREEN}✓ Entity Resolution complete.{Colors.ENDC}")
+    print(f"{Colors.OKGREEN}+ Entity Resolution complete.{Colors.ENDC}")
     print(f"  Merged:    {stats['merged']}")
     print(f"  Flagged:   {stats['flagged']}")
     print(f"  Unchanged: {stats['unchanged']}")
@@ -300,7 +300,7 @@ def run_demo():
     print(f"\nQuery: \"{demo_query}\"")
     search_results = search_engine.search(demo_query, top_k=3)
 
-    print(f"\n{Colors.OKGREEN}✓ Top {len(search_results)} result(s):{Colors.ENDC}")
+    print(f"\n{Colors.OKGREEN}+ Top {len(search_results)} result(s):{Colors.ENDC}")
     for i, r in enumerate(search_results):
         print(f"  {Colors.BOLD}[{i+1}] score={r.score:.4f}  source={r.source}{Colors.ENDC}")
         print(f"      {textwrap.shorten(r.text, width=90)}")
@@ -316,12 +316,12 @@ def run_demo():
     contradictions = intel.detect_contradictions()
 
     if contradictions:
-        print(f"\n{Colors.OKGREEN}✓ Found {len(contradictions)} contradiction(s):{Colors.ENDC}")
+        print(f"\n{Colors.OKGREEN}+ Found {len(contradictions)} contradiction(s):{Colors.ENDC}")
         for c in contradictions:
             print(f"  • [{Colors.FAIL}HIGH{Colors.ENDC}] \"{c['source_text'][:60]}\"")
             print(f"    ↔ \"{c['target_text'][:60]}\"")
     else:
-        print(f"\n{Colors.OKGREEN}✓ No contradictions detected.{Colors.ENDC}")
+        print(f"\n{Colors.OKGREEN}+ No contradictions detected.{Colors.ENDC}")
 
     input(f"\n{Colors.WARNING}Press [ENTER] to execute Stage 8 (Stale Thread Detection)...{Colors.ENDC}")
 
@@ -337,13 +337,13 @@ def run_demo():
     stale_insights = intel_stale.detect_stale_threads()
 
     if stale_insights:
-        print(f"\n{Colors.OKGREEN}✓ Found {len(stale_insights)} stale thread(s):{Colors.ENDC}")
+        print(f"\n{Colors.OKGREEN}+ Found {len(stale_insights)} stale thread(s):{Colors.ENDC}")
         for ins in stale_insights:
             p = ins['payload']
             color = Colors.FAIL if ins['severity'] == 'high' else Colors.WARNING
             print(f"  • [{color}{ins['severity'].upper()}{Colors.ENDC}] [{p['object_type']}] \"{p['object_text'][:70]}\" ({p['age_days']}d old)")
     else:
-        print(f"\n{Colors.OKGREEN}✓ No stale threads detected.{Colors.ENDC}")
+        print(f"\n{Colors.OKGREEN}+ No stale threads detected.{Colors.ENDC}")
 
     input(f"\n{Colors.WARNING}Press [ENTER] to execute Stage 9 (Consolidation Detection)...{Colors.ENDC}")
 
@@ -359,7 +359,7 @@ def run_demo():
     conn.close()
 
     if consolidation_rows:
-        print(f"\n{Colors.OKGREEN}✓ Found {len(consolidation_rows)} consolidation opportunity(ies):{Colors.ENDC}")
+        print(f"\n{Colors.OKGREEN}+ Found {len(consolidation_rows)} consolidation opportunity(ies):{Colors.ENDC}")
         for severity, payload in consolidation_rows:
             p = json.loads(payload) if isinstance(payload, str) else payload
             color = Colors.FAIL if severity == 'high' else Colors.WARNING

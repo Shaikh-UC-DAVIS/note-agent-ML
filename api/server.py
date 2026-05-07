@@ -29,14 +29,14 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, s
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-# ── Repo path setup so `ml.*` / `backend.*` imports resolve ────────────────
+# -- Repo path setup so `ml.*` / `backend.*` imports resolve ----------------
 import sys
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 
-# ── Auth ────────────────────────────────────────────────────────────────────
+# -- Auth --------------------------------------------------------------------
 INTERNAL_KEY = os.getenv("ML_INTERNAL_KEY", "")
 
 
@@ -46,7 +46,7 @@ def require_key(x_internal_key: Optional[str] = Header(default=None)):
     return True
 
 
-# ── App ─────────────────────────────────────────────────────────────────────
+# -- App ---------------------------------------------------------------------
 app = FastAPI(title="Note Agent ML Service", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -57,7 +57,7 @@ app.add_middleware(
 )
 
 
-# ── Lazy singletons (heavy models load once per process) ────────────────────
+# -- Lazy singletons (heavy models load once per process) --------------------
 _EMBED_MODEL = None
 _EMBED_MODEL_LOCK = threading.Lock()
 _NLP = None
@@ -123,7 +123,7 @@ def _get_spacy():
     return _NLP or None
 
 
-# ── Schemas ─────────────────────────────────────────────────────────────────
+# -- Schemas -----------------------------------------------------------------
 ObjectType = Literal["Idea", "Claim", "Assumption", "Question", "Task", "Evidence", "Definition"]
 LinkType = Literal["Supports", "Contradicts", "Refines", "DependsOn", "SameAs", "Causes"]
 
@@ -299,7 +299,7 @@ class ProcessResp(BaseModel):
     status: str
 
 
-# ── Chunking (ported algorithm, no DB) ──────────────────────────────────────
+# -- Chunking (ported algorithm, no DB) --------------------------------------
 def _chunk_text(text: str, window_tokens: int = 400, min_tokens: int = 80) -> List[Dict[str, Any]]:
     import tiktoken
     encoding = tiktoken.get_encoding("cl100k_base")
@@ -368,7 +368,7 @@ def _chunk_text(text: str, window_tokens: int = 400, min_tokens: int = 80) -> Li
     return spans
 
 
-# ── Similarity helpers ──────────────────────────────────────────────────────
+# -- Similarity helpers ------------------------------------------------------
 def _cosine(a: List[float], b: List[float]) -> float:
     import numpy as np
     va, vb = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
@@ -388,7 +388,7 @@ def _ensure_vectors(items: List[ResolveCandidate]) -> List[List[float]]:
     return [i.embedding for i in items]  # type: ignore[return-value]
 
 
-# ── Endpoints ───────────────────────────────────────────────────────────────
+# -- Endpoints ---------------------------------------------------------------
 @app.get("/health")
 def health():
     return {"ok": True, "service": "note-agent-ml"}
@@ -749,9 +749,14 @@ def process_endpoint(req: ProcessReq):
                     "end_char": getattr(m, "end_char", None),
                 })
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"extraction failed: {e}")
+            # Don't lose the chunks/embeddings we already built. Surface the
+            # error in the response so the backend can flag it on the note,
+            # but still return spans so RAG/chat keeps working.
+            print(f"  [pipeline] extraction failed (continuing without objects): {e}")
+            objects, links, mentions = [], [], []
+            contradictions = [{"error": f"extraction failed: {e}"}]
 
-        # 4. Insights (contradictions only — stale_threads needs historical timestamps)
+        # 4. Insights (contradictions only - stale_threads needs historical timestamps)
         if req.run_insights and objects:
             try:
                 from ml.extraction import ExtractedObject, Link as MLLink
@@ -776,7 +781,7 @@ def process_endpoint(req: ProcessReq):
     }
 
 
-# ── File text extraction ────────────────────────────────────────────────────
+# -- File text extraction ----------------------------------------------------
 @app.post("/ml/extract-text", dependencies=[Depends(require_key)])
 async def extract_text_endpoint(file: UploadFile = File(...)):
     """Accepts a binary file (PDF, DOCX, image, audio, video, plain text) and
@@ -861,7 +866,7 @@ async def extract_text_endpoint(file: UploadFile = File(...)):
             pass
 
 
-# ── HITL feedback (wraps ml/feedback.py) ────────────────────────────────────
+# -- HITL feedback (wraps ml/feedback.py) ------------------------------------
 class ReviewAction(BaseModel):
     action: Literal["accepted", "rejected", "corrected"]
     corrected_type: Optional[ObjectType] = None

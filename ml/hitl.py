@@ -38,7 +38,7 @@ VALID_TYPES = list(OBJECT_TYPE_DEFINITIONS.keys())
 
 def _print_object(idx: int, total: int, review: dict) -> None:
     """Pretty-print a pending review item."""
-    print(f"\n{Colors.HEADER}{Colors.BOLD}─── Object {idx}/{total} ───{Colors.END}")
+    print(f"\n{Colors.HEADER}{Colors.BOLD}--- Object {idx}/{total} ---{Colors.END}")
     print(f"  {Colors.BOLD}ID:{Colors.END}         {review['object_id']}")
     print(f"  {Colors.BOLD}Note:{Colors.END}       {review['note_id']}")
     print(f"  {Colors.BOLD}Type:{Colors.END}       {Colors.CYAN}{review['original_type']}{Colors.END}")
@@ -79,15 +79,15 @@ def review_pending(note_id: str = None) -> None:
 
     pending = get_pending_reviews(note_id)
     if not pending:
-        print(f"\n{Colors.GREEN}✓ No pending reviews.{Colors.END}")
+        print(f"\n{Colors.GREEN}+ No pending reviews.{Colors.END}")
         if note_id:
             print(f"  (filtered by note_id: {note_id})")
         return
 
     total = len(pending)
-    print(f"\n{Colors.HEADER}{Colors.BOLD}══════════════════════════════════════════{Colors.END}")
+    print(f"\n{Colors.HEADER}{Colors.BOLD}=========================================={Colors.END}")
     print(f"{Colors.HEADER}{Colors.BOLD}  HITL Review: {total} objects pending{Colors.END}")
-    print(f"{Colors.HEADER}{Colors.BOLD}══════════════════════════════════════════{Colors.END}")
+    print(f"{Colors.HEADER}{Colors.BOLD}=========================================={Colors.END}")
 
     counts = {"accepted": 0, "rejected": 0, "corrected": 0, "skipped": 0}
 
@@ -108,13 +108,13 @@ def review_pending(note_id: str = None) -> None:
             if choice in ("a", "accept"):
                 submit_review(review["id"], "accepted")
                 counts["accepted"] += 1
-                print(f"  {Colors.GREEN}✓ Accepted{Colors.END}")
+                print(f"  {Colors.GREEN}+ Accepted{Colors.END}")
                 break
 
             elif choice in ("r", "reject"):
                 submit_review(review["id"], "rejected")
                 counts["rejected"] += 1
-                print(f"  {Colors.RED}✗ Rejected{Colors.END}")
+                print(f"  {Colors.RED}x Rejected{Colors.END}")
                 break
 
             elif choice in ("e", "edit"):
@@ -124,7 +124,7 @@ def review_pending(note_id: str = None) -> None:
                     corrected_type=new_type,
                 )
                 counts["corrected"] += 1
-                print(f"  {Colors.YELLOW}✎ Corrected type: {review['original_type']} → {new_type}{Colors.END}")
+                print(f"  {Colors.YELLOW}* Corrected type: {review['original_type']} → {new_type}{Colors.END}")
                 break
 
             elif choice in ("t", "text"):
@@ -135,7 +135,7 @@ def review_pending(note_id: str = None) -> None:
                     corrected_text=new_text,
                 )
                 counts["corrected"] += 1
-                print(f"  {Colors.YELLOW}✎ Text corrected{Colors.END}")
+                print(f"  {Colors.YELLOW}* Text corrected{Colors.END}")
                 break
 
             elif choice in ("s", "skip"):
@@ -156,7 +156,7 @@ def review_pending(note_id: str = None) -> None:
 
 def _print_summary(counts: dict) -> None:
     """Print a summary of the review session."""
-    print(f"\n{Colors.HEADER}{Colors.BOLD}── Review Summary ──{Colors.END}")
+    print(f"\n{Colors.HEADER}{Colors.BOLD}-- Review Summary --{Colors.END}")
     print(f"  {Colors.GREEN}Accepted:{Colors.END}  {counts['accepted']}")
     print(f"  {Colors.YELLOW}Corrected:{Colors.END} {counts['corrected']}")
     print(f"  {Colors.RED}Rejected:{Colors.END}  {counts['rejected']}")
@@ -193,7 +193,7 @@ def main():
         for status, count in stats.items():
             print(f"  {status}: {count}")
         total = sum(stats.values())
-        print(f"  ─────────")
+        print(f"  ---------")
         print(f"  total: {total}")
         return
 

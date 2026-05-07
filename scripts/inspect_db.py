@@ -22,7 +22,7 @@ def connect():
     try:
         return psycopg2.connect(DB_CONFIG)
     except Exception as e:
-        print(f"❌ Connection failed: {e}")
+        print(f"x Connection failed: {e}")
         sys.exit(1)
 
 def list_tables(cur):
@@ -41,11 +41,11 @@ def inspect_table(table_name, limit=10):
     # Verify table exists to prevent SQL injection
     tables = list_tables(cur)
     if table_name not in tables:
-        print(f"❌ Table '{table_name}' does not exist.")
+        print(f"x Table '{table_name}' does not exist.")
         print(f"Available tables: {', '.join(tables)}")
         return
 
-    print(f"\n🔍 Inspecting table: {table_name} (Limit {limit})\n")
+    print(f"\n* Inspecting table: {table_name} (Limit {limit})\n")
     
     # Get values
     cur.execute(f"SELECT * FROM {table_name} LIMIT {limit};")
@@ -82,7 +82,7 @@ def main():
     conn.close()
 
     if args.list or not args.table:
-        print("📂 Available Tables:")
+        print("* Available Tables:")
         for t in tables:
             print(f" - {t}")
         if not args.list:

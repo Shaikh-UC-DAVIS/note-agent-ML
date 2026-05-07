@@ -21,14 +21,14 @@ def create_database():
         if not exists:
             print("Creating database 'note_agent'...")
             cur.execute("CREATE DATABASE note_agent")
-            print("✅ Database created.")
+            print("+ Database created.")
         else:
             print("ℹ️ Database 'note_agent' already exists.")
             
         cur.close()
         conn.close()
     except Exception as e:
-        print(f"❌ Failed to create database: {e}")
+        print(f"x Failed to create database: {e}")
 
 if __name__ == "__main__":
     create_database()

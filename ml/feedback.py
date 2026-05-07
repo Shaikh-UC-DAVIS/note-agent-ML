@@ -56,7 +56,7 @@ def init_feedback_db() -> None:
         )
 
 
-# ── Logging ──────────────────────────────────────────────────────────────────
+# -- Logging ------------------------------------------------------------------
 
 def log_extraction(note_id: str, objects: list) -> int:
     """
@@ -90,7 +90,7 @@ def log_extraction(note_id: str, objects: list) -> int:
     return len(rows)
 
 
-# ── Review Actions ───────────────────────────────────────────────────────────
+# -- Review Actions -----------------------------------------------------------
 
 def submit_review(
     review_id: int,
@@ -128,7 +128,7 @@ def submit_review(
         conn.commit()
 
 
-# ── Queries ──────────────────────────────────────────────────────────────────
+# -- Queries ------------------------------------------------------------------
 
 def get_pending_reviews(note_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return all objects awaiting human review, optionally filtered by note."""
@@ -176,7 +176,7 @@ def get_review_stats() -> Dict[str, int]:
         return {r["status"]: r["cnt"] for r in rows}
 
 
-# ── Few-Shot Example Generation ─────────────────────────────────────────────
+# -- Few-Shot Example Generation ---------------------------------------------
 
 def get_few_shot_examples(limit: int = 5) -> List[Dict[str, str]]:
     """

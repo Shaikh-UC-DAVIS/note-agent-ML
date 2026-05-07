@@ -27,36 +27,36 @@ if "--reset" in sys.argv:
 
 def test_json_repair():
     """Test the JSON repair logic handles common LLM mistakes."""
-    print("\n── Test: JSON Repair Logic ──")
+    print("\n-- Test: JSON Repair Logic --")
 
     # Case 1: Markdown fences
     fenced = '```json\n{"objects": [], "links": []}\n```'
     result = _attempt_json_repair(fenced)
     assert result is not None, "Failed to strip markdown fences"
-    print("  ✓ Strips markdown fences")
+    print("  + Strips markdown fences")
 
     # Case 2: Trailing commas
     trailing = '{"objects": [{"id": "obj_001", "type": "Claim",},], "links": []}'
     result = _attempt_json_repair(trailing)
     assert result is not None, "Failed to fix trailing commas"
-    print("  ✓ Fixes trailing commas")
+    print("  + Fixes trailing commas")
 
     # Case 3: Valid JSON passes through
     valid = '{"objects": [], "links": []}'
     result = _attempt_json_repair(valid)
     assert result == {"objects": [], "links": []}, "Valid JSON should pass through"
-    print("  ✓ Valid JSON passes through")
+    print("  + Valid JSON passes through")
 
     # Case 4: Truly broken JSON returns None
     broken = 'this is not json at all {'
     result = _attempt_json_repair(broken)
     assert result is None, "Broken JSON should return None"
-    print("  ✓ Irrecoverable JSON returns None")
+    print("  + Irrecoverable JSON returns None")
 
 
 def test_pydantic_validation():
     """Test Pydantic models enforce the schema."""
-    print("\n── Test: Pydantic Validation ──")
+    print("\n-- Test: Pydantic Validation --")
 
     # Valid extraction result
     valid_data = {
@@ -74,7 +74,7 @@ def test_pydantic_validation():
     result = ExtractionResult(**valid_data)
     assert len(result.objects) == 1
     assert result.objects[0].type == "Claim"
-    print("  ✓ Valid data accepted")
+    print("  + Valid data accepted")
 
     # Confidence clamping
     clamped_data = {
@@ -88,7 +88,7 @@ def test_pydantic_validation():
     }
     result = ExtractionResult(**clamped_data)
     assert result.objects[0].confidence == 1.0
-    print("  ✓ Confidence clamped to [0, 1]")
+    print("  + Confidence clamped to [0, 1]")
 
     # Invalid type raises error
     try:
@@ -104,23 +104,23 @@ def test_pydantic_validation():
         ExtractionResult(**bad_data)
         assert False, "Should have raised validation error"
     except Exception:
-        print("  ✓ Invalid type rejected by Pydantic")
+        print("  + Invalid type rejected by Pydantic")
 
 
 def test_llm_extraction():
     """Test the full LLM extraction pipeline (Definition of Done)."""
-    print("\n── Test: LLM Extraction Pipeline ──")
+    print("\n-- Test: LLM Extraction Pipeline --")
 
     # Verify API key
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        print("  ✗ GROQ_API_KEY not set. Skipping LLM test.")
+        print("  x GROQ_API_KEY not set. Skipping LLM test.")
         return False
 
-    print(f"  ✓ API key loaded (ends in ...{api_key[-4:]})")
+    print(f"  + API key loaded (ends in ...{api_key[-4:]})")
 
     extractor = LLMExtractor()
-    print(f"  ✓ LLMExtractor initialized (model={extractor.model})")
+    print(f"  + LLMExtractor initialized (model={extractor.model})")
 
     # Test passage (designed to produce Claims AND Ideas)
     test_text = """Our user retention dropped 12% last quarter, which the data team attributes to
@@ -130,17 +130,17 @@ before the May release? The PM assumes backend latency won't affect the new flow
 that needs validation. If retention doesn't improve by Q3, we may need to reconsider
 the freemium pricing model entirely. Action item: schedule a design sprint next week."""
 
-    print(f"\n  ── Input Text ──")
+    print(f"\n  -- Input Text --")
     print(f"  {test_text.strip()}")
-    print(f"  ── End Input ──\n")
+    print(f"  -- End Input --\n")
 
     # Extract
     result = extractor.extract(test_text, note_id="note_test_001", span_id="span_test_001")
 
-    # ══ DEFINITION OF DONE CHECKS ══
+    # == DEFINITION OF DONE CHECKS ==
 
     # Check 1: Objects table has rows
-    print(f"\n  ── Objects Table ({len(result.objects)} rows) ──")
+    print(f"\n  -- Objects Table ({len(result.objects)} rows) --")
     type_set = set()
     for obj in result.objects:
         type_set.add(obj.type)
@@ -152,22 +152,22 @@ the freemium pricing model entirely. Action item: schedule a design sprint next 
         f"Expected at least one Claim or Evidence! Got types: {type_set}"
     assert 'Idea' in type_set or 'Question' in type_set, \
         f"Expected at least one Idea or Question! Got types: {type_set}"
-    print(f"\n  ✓ PASSED: Objects contain Claims/Evidence AND Ideas/Questions")
+    print(f"\n  + PASSED: Objects contain Claims/Evidence AND Ideas/Questions")
 
     # Check 3: Links table
-    print(f"\n  ── Links Table ({len(result.links)} rows) ──")
+    print(f"\n  -- Links Table ({len(result.links)} rows) --")
     for link in result.links:
         print(f"    {link.source_id} --[{link.type}]--> {link.target_id} (conf={link.confidence})")
 
     # Check 4: Object mentions (provenance linking)
-    print(f"\n  ── Object Mentions ({len(result.mentions)} rows) ──")
+    print(f"\n  -- Object Mentions ({len(result.mentions)} rows) --")
     for m in result.mentions:
         print(f"    {m.object_id} → note={m.note_id}, span={m.span_id}, role={m.role}")
     assert len(result.mentions) == len(result.objects), \
         "Every object should have a mention linking it to the source span"
     assert all(m.note_id == "note_test_001" for m in result.mentions), \
         "All mentions should reference the correct note_id"
-    print(f"  ✓ PASSED: Object mentions correctly link to source span")
+    print(f"  + PASSED: Object mentions correctly link to source span")
 
     return True
 
@@ -186,9 +186,9 @@ def main():
 
     print("\n" + "=" * 60)
     if llm_passed:
-        print("  ✓ ALL TESTS PASSED — Stage 4 Definition of Done verified!")
+        print("  + ALL TESTS PASSED — Stage 4 Definition of Done verified!")
     else:
-        print("  ⚠ Offline tests passed. Skipped LLM test (no API key).")
+        print("  ! Offline tests passed. Skipped LLM test (no API key).")
     print("=" * 60)
 
 

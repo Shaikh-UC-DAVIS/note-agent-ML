@@ -23,7 +23,7 @@ def run_seed():
     conn = get_conn()
     cur = conn.cursor()
 
-    print("🌱 Seeding Database...")
+    print("* Seeding Database...")
 
     # 0. Apply Schema (Since we don't have psql CLI)
     schema_path = os.path.join(os.path.dirname(__file__), '..', 'backend', 'schema.sql')
@@ -31,9 +31,9 @@ def run_seed():
         with open(schema_path, 'r') as f:
             schema_sql = f.read()
         cur.execute(schema_sql)
-        print("✅ Schema applied successfully.")
+        print("+ Schema applied successfully.")
     except Exception as e:
-        print(f"⚠️ Failed to apply schema: {e}")
+        print(f"!️ Failed to apply schema: {e}")
         # Continue anyway, tables might exist
 
     # Clear existing data (Optional, for development)
@@ -108,7 +108,7 @@ def run_seed():
     conn.commit()
     cur.close()
     conn.close()
-    print("✅ Seed Complete! Dummy data inserted.")
+    print("+ Seed Complete! Dummy data inserted.")
 
 if __name__ == "__main__":
     run_seed()

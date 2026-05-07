@@ -76,12 +76,12 @@ def _count_same_as_links(conn):
 
 def test_inter_batch_resolution():
     """Baseline: a new object auto-merges with a near-identical pre-existing object."""
-    print("\n── Test: Inter-Batch Resolution ──")
+    print("\n-- Test: Inter-Batch Resolution --")
 
     try:
         conn = _get_conn()
     except Exception as e:
-        print(f"  ⚠ Skipping: cannot connect to DB ({e})")
+        print(f"  ! Skipping: cannot connect to DB ({e})")
         return False
 
     _setup_workspace(conn)
@@ -101,7 +101,7 @@ def test_inter_batch_resolution():
             (vec_str, pre_id),
         )
     conn.commit()
-    print("  ✓ Pre-existing object seeded with embedding")
+    print("  + Pre-existing object seeded with embedding")
 
     # New object — identical text → similarity = 1.0 → auto-merge
     new_id = str(uuid.uuid4())
@@ -112,8 +112,8 @@ def test_inter_batch_resolution():
     assert stats["merged"] == 1, f"Expected merged=1, got {stats}"
     assert stats["flagged"] == 0, f"Expected flagged=0, got {stats}"
     assert _count_same_as_links(conn) == 1, "Expected 1 SameAs link"
-    print(f"  ✓ Merged: {stats['merged']}, Flagged: {stats['flagged']}, Unchanged: {stats['unchanged']}")
-    print("  ✓ SameAs link created")
+    print(f"  + Merged: {stats['merged']}, Flagged: {stats['flagged']}, Unchanged: {stats['unchanged']}")
+    print("  + SameAs link created")
 
     conn.close()
     return True
@@ -130,12 +130,12 @@ def test_intra_batch_near_duplicates():
 
     Expected: merged=1, unchanged=1, one SameAs link.
     """
-    print("\n── Test: Intra-Batch Near-Duplicates ──")
+    print("\n-- Test: Intra-Batch Near-Duplicates --")
 
     try:
         conn = _get_conn()
     except Exception as e:
-        print(f"  ⚠ Skipping: cannot connect to DB ({e})")
+        print(f"  ! Skipping: cannot connect to DB ({e})")
         return False
 
     _setup_workspace(conn)
@@ -146,7 +146,7 @@ def test_intra_batch_near_duplicates():
 
     _insert_object(conn, obj_a_id, "Launch new Quantum Engine product by March 15th")
     _insert_object(conn, obj_b_id, "New Quantum Engine product launch is scheduled for March 15th")
-    print("  ✓ obj_A and obj_B inserted into the same batch (no pre-existing objects)")
+    print("  + obj_A and obj_B inserted into the same batch (no pre-existing objects)")
 
     stats = resolver.resolve_entities_task(
         [obj_a_id, obj_b_id], workspace_id=TEST_WORKSPACE
@@ -164,11 +164,11 @@ def test_intra_batch_near_duplicates():
         f"Expected at least one intra-batch merge or flag, got {stats}. " \
         "Near-duplicate texts should exceed the FLAG_THRESHOLD (0.85)."
 
-    print(f"  ✓ Merged: {stats['merged']}, Flagged: {stats['flagged']}, Unchanged: {stats['unchanged']}")
+    print(f"  + Merged: {stats['merged']}, Flagged: {stats['flagged']}, Unchanged: {stats['unchanged']}")
     if stats["merged"] >= 1:
-        print(f"  ✓ SameAs link(s) created: {_count_same_as_links(conn)}")
+        print(f"  + SameAs link(s) created: {_count_same_as_links(conn)}")
     else:
-        print("  ✓ Intra-batch similarity detected via flagging (similarity in 0.85–0.95 range)")
+        print("  + Intra-batch similarity detected via flagging (similarity in 0.85–0.95 range)")
 
     conn.close()
     return True
@@ -180,12 +180,12 @@ def test_intra_batch_no_false_positives():
 
     Expected: merged=0, flagged=0, unchanged=2.
     """
-    print("\n── Test: Intra-Batch No False Positives ──")
+    print("\n-- Test: Intra-Batch No False Positives --")
 
     try:
         conn = _get_conn()
     except Exception as e:
-        print(f"  ⚠ Skipping: cannot connect to DB ({e})")
+        print(f"  ! Skipping: cannot connect to DB ({e})")
         return False
 
     _setup_workspace(conn)
@@ -196,7 +196,7 @@ def test_intra_batch_no_false_positives():
 
     _insert_object(conn, obj_c_id, "Launch new Quantum Engine product by March 15th", obj_type="Claim")
     _insert_object(conn, obj_d_id, "What is our go-to-market timeline for the EU?", obj_type="Question")
-    print("  ✓ obj_C (Claim) and obj_D (Question, unrelated topic) inserted")
+    print("  + obj_C (Claim) and obj_D (Question, unrelated topic) inserted")
 
     stats = resolver.resolve_entities_task(
         [obj_c_id, obj_d_id], workspace_id=TEST_WORKSPACE
@@ -207,8 +207,8 @@ def test_intra_batch_no_false_positives():
     assert stats["unchanged"] == 2, f"Expected unchanged=2, got {stats}"
     assert _count_same_as_links(conn) == 0, "Expected no SameAs links for dissimilar objects"
 
-    print(f"  ✓ Merged: {stats['merged']}, Flagged: {stats['flagged']}, Unchanged: {stats['unchanged']}")
-    print("  ✓ No false-positive merges")
+    print(f"  + Merged: {stats['merged']}, Flagged: {stats['flagged']}, Unchanged: {stats['unchanged']}")
+    print("  + No false-positive merges")
 
     conn.close()
     return True
@@ -231,9 +231,9 @@ def main():
 
     print("\n" + "=" * 60)
     if all(r is not False for r in results):
-        print("  ✓ ALL ENTITY RESOLUTION TESTS PASSED")
+        print("  + ALL ENTITY RESOLUTION TESTS PASSED")
     else:
-        print("  ✗ SOME TESTS FAILED OR WERE SKIPPED — see output above")
+        print("  x SOME TESTS FAILED OR WERE SKIPPED — see output above")
     print("=" * 60)
 
 

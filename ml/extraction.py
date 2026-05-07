@@ -25,7 +25,7 @@ class Chunk:
     token_count: int
     metadata: Dict[str, Any]
 
-# ── Structured output models (Stage 3/4) ──────────────────────────────────────
+# -- Structured output models (Stage 3/4) --------------------------------------
 
 class ExtractedObject(BaseModel):
     """
@@ -81,7 +81,7 @@ class ExtractionResult(BaseModel):
     mentions: List[ObjectMention] = []
 
 
-# ── LLM Extractor ─────────────────────────────────────────────────────────────
+# -- LLM Extractor -------------------------------------------------------------
 
 # Per-type definitions matching ML_doc.pdf Stage 4 (page 8-9)
 # "For each object type: Design LLM prompt specific to that type"
@@ -258,7 +258,7 @@ class LLMExtractor:
                 all_objects.extend(objs)
 
         if not all_objects:
-            print("[Extraction] ✗ No objects extracted.")
+            print("[Extraction] x No objects extracted.")
             return ExtractionResult(objects=[], links=[], mentions=[])
 
         # Deduplicate and re-number IDs
@@ -301,7 +301,7 @@ class LLMExtractor:
             type_counts[obj.type] = type_counts.get(obj.type, 0) + 1
         counts_str = ", ".join(f"{c} {t}{'s' if c != 1 else ''}" for t, c in type_counts.items())
         few_shot_info = " (with few-shot examples)" if self._few_shot_block else " (zero-shot)"
-        print(f"[Extraction] ✓ Extracted {len(all_objects)} objects ({counts_str}), {len(links)} links  (model={self.model}){few_shot_info}")
+        print(f"[Extraction] + Extracted {len(all_objects)} objects ({counts_str}), {len(links)} links  (model={self.model}){few_shot_info}")
 
         return ExtractionResult(objects=all_objects, links=links, mentions=mentions)
         """
@@ -325,7 +325,7 @@ class LLMExtractor:
         all_objects = self._extract_batch(text)
 
         if not all_objects:
-            print("[Extraction] ✗ No objects extracted.")
+            print("[Extraction] x No objects extracted.")
             return ExtractionResult(objects=[], links=[], mentions=[])
 
         # Deduplicate and re-number IDs (Technical cleanup)
@@ -390,7 +390,7 @@ class LLMExtractor:
             type_counts[obj.type] = type_counts.get(obj.type, 0) + 1
         counts_str = ", ".join(f"{count} {t}{'s' if count != 1 else ''}" for t, count in type_counts.items())
 
-        print(f"[Extraction] ✓ Extracted {len(all_objects)} objects ({counts_str}), "
+        print(f"[Extraction] + Extracted {len(all_objects)} objects ({counts_str}), "
               f"{len(links)} links  (model={self.model})")
 
         return ExtractionResult(objects=all_objects, links=links, mentions=mentions)
@@ -524,10 +524,10 @@ Be precise and exhaustive. Ensure every important idea, claim, or question is ca
             # Step 5: If still invalid → REGENERATE (once)
             if parsed is None:
                 if not is_retry:
-                    print(f"  [Batch] ⚠ Malformed JSON. Attempting REGENERATION...")
+                    print(f"  [Batch] ! Malformed JSON. Attempting REGENERATION...")
                     return self._extract_batch(text, is_retry=True)
                 else:
-                    print(f"  [Batch] ✗ Regeneration failed.")
+                    print(f"  [Batch] x Regeneration failed.")
                     return []
 
             # Step 4: Validate against JSON schema
@@ -560,9 +560,9 @@ Be precise and exhaustive. Ensure every important idea, claim, or question is ca
 
         except Exception as e:
             if not is_retry:
-                print(f"  [Batch] ⚠ LLM call failed ({e}). Attempting REGENERATION...")
+                print(f"  [Batch] ! LLM call failed ({e}). Attempting REGENERATION...")
                 return self._extract_batch(text, is_retry=True)
-            print(f"  [Batch] ✗ LLM call failed significantly: {e}")
+            print(f"  [Batch] x LLM call failed significantly: {e}")
             return []
 
     def _extract_relationships(self, text: str, objects: List[ExtractedObject], is_retry: bool = False) -> List[Link]:
@@ -640,7 +640,7 @@ Only include relationships where there is a clear semantic connection supported 
 
             if parsed is None:
                 if not is_retry:
-                    print(f"  [Relationships] ⚠ Malformed JSON. Attempting REGENERATION...")
+                    print(f"  [Relationships] ! Malformed JSON. Attempting REGENERATION...")
                     return self._extract_relationships(text, objects, is_retry=True)
                 return []
 
@@ -659,7 +659,7 @@ Only include relationships where there is a clear semantic connection supported 
 
         except Exception as e:
             if not is_retry:
-                 print(f"  [Relationships] ⚠ LLM call failed ({e}). Attempting REGENERATION...")
+                 print(f"  [Relationships] ! LLM call failed ({e}). Attempting REGENERATION...")
                  return self._extract_relationships(text, objects, is_retry=True)
-            print(f"  [Relationships] ✗ LLM call failed significantly: {e}")
+            print(f"  [Relationships] x LLM call failed significantly: {e}")
             return []
