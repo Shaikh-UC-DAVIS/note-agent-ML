@@ -271,7 +271,7 @@ class ChatReq(BaseModel):
     spans: List[ChatSpan] = []
     history: List[ChatMessage] = []
     max_tokens: int = 600
-    temperature: float = 0.2
+    temperature: float = 0.5
 
 
 class ChatResp(BaseModel):
@@ -622,20 +622,50 @@ def chat_endpoint(req: ChatReq):
         snippet = (s.text or "").strip().replace("\r", " ")
         if len(snippet) > 1200:
             snippet = snippet[:1200] + "…"
-        context_blocks.append(f"[S#{sid}]\n{snippet}")
+        context_blocks.append(f"[{sid}]\n{snippet}")
     context_text = "\n\n".join(context_blocks) if context_blocks else "(no relevant notes were found)"
 
     system_prompt = (
-        "You are a research assistant for a personal knowledge base. "
-        "Answer the user's question using ONLY the facts in the numbered context blocks below. "
-        "When you use a fact, cite its id in square brackets exactly as shown, e.g. [S#abc123]. "
-        "If the context does not contain the answer, say so plainly and do not fabricate details. "
-        "Be concise: 1-4 short paragraphs or a short bulleted list."
+        "You are the user's personal notes assistant. Answer like a smart colleague who has read all of "
+        "their notes and tasks — direct, varied, never templated. Use ONLY facts from the numbered context "
+        "below. Each item is tagged [N1], [N2], etc. After every concrete fact, append the matching tag.\n\n"
+        "MATCH THE QUESTION — do not over-answer:\n"
+        "- DIRECT factual lookup ('when X', 'who X', 'where X', 'how many X', 'what is the status of X', "
+        "'what was X before/after Y'): answer in ONE short sentence. Do NOT add related context, "
+        "background, or implications the user didn't ask about.\n"
+        "- BROAD / synthesis question ('tell me about X', 'summarize X', 'what's going on with Y', "
+        "'what does X involve'): combine facts across 2–3 items into one coherent answer. Weave them "
+        "together rather than listing per-item. Surface connections (cause/effect, before/after, "
+        "who-owns-what) that the items make plain.\n"
+        "- LIST question ('list all', 'what are the risks', 'every step'): use bullets, one per item.\n"
+        "- TASK question ('what tasks do I have', 'what's left to do', 'what's in progress', 'what "
+        "have I finished', 'anything on my list'): answer ONLY from items in context whose body starts "
+        "with 'Task:' — quote the title and status (e.g. 'You have two tasks left: Run backend sanity "
+        "test (in progress) and Verify embedding index (todo).'). Do NOT use note prose for task "
+        "questions, even if note content overlaps with a task title.\n"
+        "- FOLLOW-UP turn: answer naturally building on what was just said.\n\n"
+        "GUARDRAILS:\n"
+        "- Vary your phrasing across turns. Never reuse the same opening pattern twice in a row.\n"
+        "- The context can include both regular notes and task summaries. Treat task entries the same "
+        "as notes — they are valid sources and you can cite them with their [N#] tag.\n"
+        "- You may make small inferences (ordering events, inferring a role, naming a relationship) "
+        "when supported by what you see. Never invent specifics that aren't there.\n"
+        "- If a detail isn't in the context, omit it. Don't guess names, numbers, dates, or statuses.\n"
+        "- If the context truly doesn't address the question, reply EXACTLY: 'Not found in your notes yet.'\n\n"
+        "FORBIDDEN:\n"
+        "- Padding a one-line factual answer with extra context the user didn't ask about. THIS IS THE "
+        "MOST COMMON FAILURE — resist the urge to be 'helpful' by adding more.\n"
+        "- Preamble: 'Based on the notes...', 'According to your notes...', 'It looks like...'.\n"
+        "- Restating the question before answering.\n"
+        "- The words 'span', 'context', 'block', 'document', 'snippet', or any UUID-style id.\n"
+        "- Hedging filler ('I think', 'possibly', 'it seems') when the source is explicit.\n"
+        "- Defaulting to bullets when prose would read better."
     )
     user_prompt = (
         f"Context:\n{context_text}\n\n"
         f"Question: {req.question.strip()}\n\n"
-        "Answer (with inline citations like [S#...]):"
+        "Answer ONLY what was asked. If it's a direct lookup, one sentence. "
+        "If it's a broad/synthesis question, fuse facts across items. Cite with [N#]."
     )
 
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
@@ -656,7 +686,7 @@ def chat_endpoint(req: ChatReq):
 
     cited = []
     seen = set()
-    for m in re.finditer(r"\[S#([^\]\s]+)\]", answer):
+    for m in re.finditer(r"\[(N\d+)\]", answer):
         sid = m.group(1)
         if sid in allowed_ids and sid not in seen:
             seen.add(sid)
